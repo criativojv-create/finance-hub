@@ -18,12 +18,19 @@ const MONTHS_FULL = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
 
 interface Props {
   entries: BusinessEntry[]
+  companyName?: string
+  accentColor?: 'teal' | 'violet' | 'indigo'
   onAdd: (e: Omit<BusinessEntry, 'id' | 'createdAt'>) => void
   onDelete: (id: string) => void
   onUpdateStatus: (id: string, status: BusinessStatus) => void
 }
 
-export default function BusinessFinances({ entries, onAdd, onDelete, onUpdateStatus }: Props) {
+export default function BusinessFinances({ entries, companyName = 'Empresa', accentColor = 'teal', onAdd, onDelete, onUpdateStatus }: Props) {
+  const btnClass = accentColor === 'violet'
+    ? 'bg-violet-600 hover:bg-violet-700'
+    : accentColor === 'indigo'
+    ? 'bg-indigo-600 hover:bg-indigo-700'
+    : 'bg-teal-600 hover:bg-teal-700'
   const today = new Date()
   const [month, setMonth] = useState(today.getMonth())
   const [year, setYear] = useState(today.getFullYear())
@@ -81,10 +88,10 @@ export default function BusinessFinances({ entries, onAdd, onDelete, onUpdateSta
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="font-semibold text-2xl text-slate-900 tracking-tight">Empresa</h2>
+          <h2 className="font-semibold text-2xl text-slate-900 tracking-tight">{companyName}</h2>
           <p className="text-sm text-slate-500 mt-0.5">Gestão de entradas e serviços</p>
         </div>
-        <button onClick={() => setShowAdd(true)} className="btn-primary bg-teal-600 hover:bg-teal-700">
+        <button onClick={() => setShowAdd(true)} className={`btn-primary ${btnClass}`}>
           <Plus size={15} /> Nova Entrada
         </button>
       </div>
@@ -189,7 +196,7 @@ export default function BusinessFinances({ entries, onAdd, onDelete, onUpdateSta
           <div className="p-12 text-center">
             <div className="text-4xl mb-3 opacity-30">📊</div>
             <p className="text-slate-400 text-sm">Nenhuma entrada encontrada</p>
-            <button onClick={() => setShowAdd(true)} className="btn-primary mt-4 mx-auto bg-teal-600 hover:bg-teal-700">
+            <button onClick={() => setShowAdd(true)} className={`btn-primary mt-4 mx-auto ${btnClass}`}>
               <Plus size={15} /> Adicionar entrada
             </button>
           </div>

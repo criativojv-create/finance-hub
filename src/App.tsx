@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Home, Building2, Wallet } from 'lucide-react'
+import { Home, Wallet } from 'lucide-react'
 import { Category, Expense, FixedExpense, BusinessEntry, BusinessStatus, PersonNames } from './types'
 import { useLocalStorage } from './hooks/useLocalStorage'
 import { supabase, hasSupabase } from './lib/supabase'
@@ -21,75 +21,75 @@ function genId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
+type TabType = 'personal' | 'ceraame' | 'jv'
+
 export default function App() {
-  const [tab, setTab] = useState<'personal' | 'business'>('personal')
+  const [tab, setTab] = useState<TabType>('personal')
   const [synced, setSynced] = useState(false)
 
+  // Finanças pessoais
   const [expenses, setExpenses] = useLocalStorage<Expense[]>('fh_expenses', [])
   const [fixedExpenses, setFixedExpenses] = useLocalStorage<FixedExpense[]>('fh_fixed', [])
   const [categories, setCategories] = useLocalStorage<Category[]>('fh_categories', DEFAULT_CATEGORIES)
-  const [businessEntries, setBusinessEntries] = useLocalStorage<BusinessEntry[]>('fh_business', [])
   const [personNames, setPersonNames] = useLocalStorage<PersonNames>('fh_names', {
     person1: 'Victor',
     person2: 'Erica',
   })
 
-  // ─── CARREGAR dados do Supabase ao iniciar ───────────────────────
+  // Empresa Ceraame
+  const [ceraamEntries, setCeraamEntries] = useLocalStorage<BusinessEntry[]>('fh_ceraame', [])
+
+  // Empresa JV
+  const [jvEntries, setJvEntries] = useLocalStorage<BusinessEntry[]>('fh_jv', [])
+
+  // ─── CARREGAR do Supabase ────────────────────────────────────────
   useEffect(() => {
     if (!hasSupabase || !supabase) return
-    async function loadFromSupabase() {
+    async function load() {
       try {
         const [
           { data: exp },
           { data: fixed },
           { data: cats },
-          { data: biz },
+          { data: ceraame },
+          { data: jv },
           { data: settings },
         ] = await Promise.all([
           supabase!.from('expenses').select('*').order('created_at'),
           supabase!.from('fixed_expenses').select('*').order('created_at'),
           supabase!.from('categories').select('*'),
-          supabase!.from('business_entries').select('*').order('created_at'),
+          supabase!.from('business_entries').select('*').eq('company', 'ceraame').order('created_at'),
+          supabase!.from('business_entries').select('*').eq('company', 'jv').order('created_at'),
           supabase!.from('settings').select('*').eq('key', 'person_names').single(),
         ])
 
-        if (exp && exp.length > 0) setExpenses(exp as Expense[])
-        if (fixed && fixed.length > 0) setFixedExpenses(fixed.map((f: any) => ({
-          ...f,
-          dayOfMonth: f.day_of_month,
-          startYear: f.start_year,
-          startMonth: f.start_month,
-          createdAt: f.created_at,
-        })) as FixedExpense[])
-        if (cats && cats.length > 0) setCategories(cats.map((c: any) => ({
-          ...c,
-          isCustom: c.is_custom,
-        })) as Category[])
-        if (biz && biz.length > 0) setBusinessEntries(biz.map((e: any) => ({
-          ...e,
-          createdAt: e.created_at,
-        })) as BusinessEntry[])
+        if (exp?.length)    setExpenses(exp as Expense[])
+        if (fixed?.length)  setFixedExpenses(fixed.map((f: any) => ({
+          ...f, dayOfMonth: f.day_of_month,
+          startYear: f.start_year, startMonth: f.start_month, createdAt: f.created_at,
+        })))
+        if (cats?.length)   setCategories(cats.map((c: any) => ({ ...c, isCustom: c.is_custom })))
+        if (ceraame?.length) setCeraamEntries(ceraame.map((e: any) => ({ ...e, createdAt: e.created_at })))
+        if (jv?.length)     setJvEntries(jv.map((e: any) => ({ ...e, createdAt: e.created_at })))
         if (settings?.value) setPersonNames(settings.value as PersonNames)
 
         setSynced(true)
-        console.log('✅ Dados carregados do Supabase')
       } catch (err) {
-        console.warn('Erro ao carregar do Supabase, usando localStorage', err)
-        setSynced(false)
+        console.warn('Erro ao carregar Supabase, usando localStorage', err)
       }
     }
-    loadFromSupabase()
+    load()
   }, [])
 
-  // ─── SALVAR no Supabase após cada mudança ────────────────────────
+  // ─── SALVAR no Supabase ──────────────────────────────────────────
   useEffect(() => {
     if (!hasSupabase || !supabase || !synced) return
     const t = setTimeout(async () => {
       try {
-        if (expenses.length > 0)
+        if (expenses.length)
           await supabase!.from('expenses').upsert(expenses, { onConflict: 'id' })
 
-        if (fixedExpenses.length > 0)
+        if (fixedExpenses.length)
           await supabase!.from('fixed_expenses').upsert(
             fixedExpenses.map(f => ({
               id: f.id, description: f.description, amount: f.amount,
@@ -97,134 +97,149 @@ export default function App() {
               day_of_month: f.dayOfMonth, active: f.active,
               start_year: f.startYear, start_month: f.startMonth,
               created_at: f.createdAt,
-            })),
-            { onConflict: 'id' }
+            })), { onConflict: 'id' }
           )
 
-        if (categories.length > 0)
+        if (categories.length)
           await supabase!.from('categories').upsert(
             categories.map(c => ({
               id: c.id, name: c.name, color: c.color,
               icon: c.icon, is_custom: c.isCustom ?? false,
-            })),
-            { onConflict: 'id' }
+            })), { onConflict: 'id' }
           )
 
-        if (businessEntries.length > 0)
-          await supabase!.from('business_entries').upsert(
-            businessEntries.map(e => ({
-              id: e.id, description: e.description, type: e.type,
-              amount: e.amount, date: e.date, client: e.client,
-              status: e.status, created_at: e.createdAt,
-            })),
-            { onConflict: 'id' }
-          )
+        const allBusiness = [
+          ...ceraamEntries.map(e => ({ ...e, company: 'ceraame', created_at: e.createdAt })),
+          ...jvEntries.map(e => ({ ...e, company: 'jv', created_at: e.createdAt })),
+        ]
+        if (allBusiness.length)
+          await supabase!.from('business_entries').upsert(allBusiness, { onConflict: 'id' })
 
         await supabase!.from('settings').upsert(
           { key: 'person_names', value: personNames, updated_at: new Date().toISOString() },
           { onConflict: 'key' }
         )
-        console.log('✅ Dados salvos no Supabase')
       } catch (err) {
-        console.warn('Erro ao salvar no Supabase:', err)
+        console.warn('Erro ao salvar:', err)
       }
     }, 1500)
     return () => clearTimeout(t)
-  }, [expenses, fixedExpenses, categories, businessEntries, personNames, synced])
+  }, [expenses, fixedExpenses, categories, ceraamEntries, jvEntries, personNames, synced])
 
-  // ─── HANDLERS ───────────────────────────────────────────────────
+  // ─── HANDLERS PESSOAL ───────────────────────────────────────────
   function addExpenses(list: Omit<Expense, 'id' | 'createdAt'>[]) {
     const now = new Date().toISOString()
     setExpenses(prev => [...prev, ...list.map(e => ({ ...e, id: genId(), createdAt: now }))])
   }
   function deleteExpense(id: string) {
     setExpenses(prev => prev.filter(e => e.id !== id))
-    if (hasSupabase && supabase) supabase.from('expenses').delete().eq('id', id)
+    supabase?.from('expenses').delete().eq('id', id)
   }
   function deleteInstallmentGroup(groupId: string) {
     setExpenses(prev => prev.filter(e => e.installmentGroupId !== groupId))
-    if (hasSupabase && supabase) supabase.from('expenses').delete().eq('installment_group_id', groupId)
+    supabase?.from('expenses').delete().eq('installment_group_id', groupId)
   }
   function addFixed(f: Omit<FixedExpense, 'id' | 'createdAt'>) {
     setFixedExpenses(prev => [...prev, { ...f, id: genId(), createdAt: new Date().toISOString() }])
   }
   function deleteFixed(id: string) {
     setFixedExpenses(prev => prev.filter(f => f.id !== id))
-    if (hasSupabase && supabase) supabase.from('fixed_expenses').delete().eq('id', id)
+    supabase?.from('fixed_expenses').delete().eq('id', id)
   }
   function toggleFixed(id: string) {
     setFixedExpenses(prev => prev.map(f => {
       if (f.id !== id) return f
       const updated = { ...f, active: !f.active }
-      if (hasSupabase && supabase) supabase.from('fixed_expenses').update({ active: updated.active }).eq('id', id)
+      supabase?.from('fixed_expenses').update({ active: updated.active }).eq('id', id)
       return updated
     }))
   }
   function addCategory(c: Omit<Category, 'id'>) {
     setCategories(prev => [...prev, { ...c, id: genId() }])
   }
-  function addBusiness(e: Omit<BusinessEntry, 'id' | 'createdAt'>) {
-    setBusinessEntries(prev => [...prev, { ...e, id: genId(), createdAt: new Date().toISOString() }])
+
+  // ─── HANDLERS EMPRESA (genérico) ────────────────────────────────
+  function makeBusinessHandlers(
+    entries: BusinessEntry[],
+    setEntries: React.Dispatch<React.SetStateAction<BusinessEntry[]>>,
+    company: string
+  ) {
+    return {
+      onAdd: (e: Omit<BusinessEntry, 'id' | 'createdAt'>) => {
+        setEntries(prev => [...prev, { ...e, id: genId(), createdAt: new Date().toISOString() }])
+      },
+      onDelete: (id: string) => {
+        setEntries(prev => prev.filter(e => e.id !== id))
+        supabase?.from('business_entries').delete().eq('id', id)
+      },
+      onUpdateStatus: (id: string, status: BusinessStatus) => {
+        setEntries(prev => prev.map(e => e.id === id ? { ...e, status } : e))
+        supabase?.from('business_entries').update({ status }).eq('id', id)
+      },
+    }
   }
-  function deleteBusiness(id: string) {
-    setBusinessEntries(prev => prev.filter(e => e.id !== id))
-    if (hasSupabase && supabase) supabase.from('business_entries').delete().eq('id', id)
-  }
-  function updateBusinessStatus(id: string, status: BusinessStatus) {
-    setBusinessEntries(prev => prev.map(e => e.id === id ? { ...e, status } : e))
-    if (hasSupabase && supabase) supabase.from('business_entries').update({ status }).eq('id', id)
-  }
+
+  const ceraamHandlers = makeBusinessHandlers(ceraamEntries, setCeraamEntries, 'ceraame')
+  const jvHandlers     = makeBusinessHandlers(jvEntries,    setJvEntries,     'jv')
+
+  const TABS = [
+    { key: 'personal' as TabType, label: 'Pessoal',         icon: '🏠', color: 'indigo' },
+    { key: 'ceraame'  as TabType, label: 'Empresa Ceraame', icon: '🏢', color: 'teal'   },
+    { key: 'jv'       as TabType, label: 'Empresa JV',      icon: '💼', color: 'violet' },
+  ]
 
   return (
     <div className="min-h-screen bg-slate-50 mesh-bg">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/90 backdrop-blur-sm shadow-sm">
-        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-4">
-          <div className="flex items-center gap-2 mr-2">
+        <div className="max-w-5xl mx-auto px-4 h-14 flex items-center gap-3">
+          {/* Logo */}
+          <div className="flex items-center gap-2 mr-1 flex-shrink-0">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-teal-500 flex items-center justify-center shadow-sm">
               <Wallet size={14} className="text-white" />
             </div>
-            <span className="font-semibold text-slate-800 text-sm hidden sm:block tracking-tight">FinanceHub</span>
+            <span className="font-semibold text-slate-800 text-sm hidden md:block tracking-tight">FinanceHub</span>
           </div>
 
-          <nav className="flex gap-1 flex-1">
-            <button
-              onClick={() => setTab('personal')}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                tab === 'personal'
-                  ? 'bg-indigo-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
-              }`}
-            >
-              <Home size={15} />
-              <span className="hidden sm:block">Pessoal</span>
-            </button>
-            <button
-              onClick={() => setTab('business')}
-              className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 ${
-                tab === 'business'
-                  ? 'bg-teal-600 text-white shadow-sm'
-                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
-              }`}
-            >
-              <Building2 size={15} />
-              <span className="hidden sm:block">Empresa</span>
-            </button>
+          {/* Tabs */}
+          <nav className="flex gap-1 flex-1 overflow-x-auto">
+            {TABS.map(({ key, label, icon, color }) => {
+              const active = tab === key
+              const colorMap: Record<string, string> = {
+                indigo: 'bg-indigo-600 text-white shadow-sm',
+                teal:   'bg-teal-600 text-white shadow-sm',
+                violet: 'bg-violet-600 text-white shadow-sm',
+              }
+              return (
+                <button
+                  key={key}
+                  onClick={() => setTab(key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap flex-shrink-0 ${
+                    active
+                      ? colorMap[color]
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{icon}</span>
+                  <span className="hidden sm:block">{label}</span>
+                </button>
+              )
+            })}
           </nav>
 
-          {/* Status de sincronização */}
-          <div className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border ${
+          {/* Status nuvem */}
+          <div className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border flex-shrink-0 ${
             hasSupabase
               ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
               : 'bg-slate-100 border-slate-200 text-slate-500'
           }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${hasSupabase ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
-            <span className="hidden sm:block">{hasSupabase ? 'Salvando na nuvem' : 'Modo local'}</span>
+            <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${hasSupabase ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+            <span className="hidden sm:block">{hasSupabase ? 'Nuvem' : 'Local'}</span>
           </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-6">
-        {tab === 'personal' ? (
+        {tab === 'personal' && (
           <PersonalFinances
             expenses={expenses}
             fixedExpenses={fixedExpenses}
@@ -239,12 +254,21 @@ export default function App() {
             onDeleteFixed={deleteFixed}
             onToggleFixed={toggleFixed}
           />
-        ) : (
+        )}
+        {tab === 'ceraame' && (
           <BusinessFinances
-            entries={businessEntries}
-            onAdd={addBusiness}
-            onDelete={deleteBusiness}
-            onUpdateStatus={updateBusinessStatus}
+            entries={ceraamEntries}
+            companyName="Empresa Ceraame"
+            accentColor="teal"
+            {...ceraamHandlers}
+          />
+        )}
+        {tab === 'jv' && (
+          <BusinessFinances
+            entries={jvEntries}
+            companyName="Empresa JV"
+            accentColor="violet"
+            {...jvHandlers}
           />
         )}
       </main>
