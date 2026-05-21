@@ -1,11 +1,10 @@
-import { useState } from 'react'
-import { Home, Building2, Wallet, HelpCircle } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Home, Building2, Wallet } from 'lucide-react'
 import { Category, Expense, FixedExpense, BusinessEntry, BusinessStatus, PersonNames } from './types'
 import { useLocalStorage } from './hooks/useLocalStorage'
-import { useSyncData } from './hooks/useSyncData'
+import { supabase, hasSupabase } from './lib/supabase'
 import PersonalFinances from './components/PersonalFinances'
 import BusinessFinances from './components/BusinessFinances'
-import SupabaseStatus from './components/SupabaseStatus'
 
 const DEFAULT_CATEGORIES: Category[] = [
   { id: 'moradia',      name: 'Moradia',      color: '#6366f1', icon: '🏠' },
@@ -24,6 +23,7 @@ function genId() {
 
 export default function App() {
   const [tab, setTab] = useState<'personal' | 'business'>('personal')
+  const [synced, setSynced] = useState(false)
 
   const [expenses, setExpenses] = useLocalStorage<Expense[]>('fh_expenses', [])
   const [fixedExpenses, setFixedExpenses] = useLocalStorage<FixedExpense[]>('fh_fixed', [])
@@ -34,50 +34,146 @@ export default function App() {
     person2: 'Erica',
   })
 
-  // Expenses (suporta array para parcelamentos)
+  // ─── CARREGAR dados do Supabase ao iniciar ───────────────────────
+  useEffect(() => {
+    if (!hasSupabase || !supabase) return
+    async function loadFromSupabase() {
+      try {
+        const [
+          { data: exp },
+          { data: fixed },
+          { data: cats },
+          { data: biz },
+          { data: settings },
+        ] = await Promise.all([
+          supabase!.from('expenses').select('*').order('created_at'),
+          supabase!.from('fixed_expenses').select('*').order('created_at'),
+          supabase!.from('categories').select('*'),
+          supabase!.from('business_entries').select('*').order('created_at'),
+          supabase!.from('settings').select('*').eq('key', 'person_names').single(),
+        ])
+
+        if (exp && exp.length > 0) setExpenses(exp as Expense[])
+        if (fixed && fixed.length > 0) setFixedExpenses(fixed.map((f: any) => ({
+          ...f,
+          dayOfMonth: f.day_of_month,
+          startYear: f.start_year,
+          startMonth: f.start_month,
+          createdAt: f.created_at,
+        })) as FixedExpense[])
+        if (cats && cats.length > 0) setCategories(cats.map((c: any) => ({
+          ...c,
+          isCustom: c.is_custom,
+        })) as Category[])
+        if (biz && biz.length > 0) setBusinessEntries(biz.map((e: any) => ({
+          ...e,
+          createdAt: e.created_at,
+        })) as BusinessEntry[])
+        if (settings?.value) setPersonNames(settings.value as PersonNames)
+
+        setSynced(true)
+        console.log('✅ Dados carregados do Supabase')
+      } catch (err) {
+        console.warn('Erro ao carregar do Supabase, usando localStorage', err)
+        setSynced(false)
+      }
+    }
+    loadFromSupabase()
+  }, [])
+
+  // ─── SALVAR no Supabase após cada mudança ────────────────────────
+  useEffect(() => {
+    if (!hasSupabase || !supabase || !synced) return
+    const t = setTimeout(async () => {
+      try {
+        if (expenses.length > 0)
+          await supabase!.from('expenses').upsert(expenses, { onConflict: 'id' })
+
+        if (fixedExpenses.length > 0)
+          await supabase!.from('fixed_expenses').upsert(
+            fixedExpenses.map(f => ({
+              id: f.id, description: f.description, amount: f.amount,
+              category_id: f.categoryId, payer: f.payer,
+              day_of_month: f.dayOfMonth, active: f.active,
+              start_year: f.startYear, start_month: f.startMonth,
+              created_at: f.createdAt,
+            })),
+            { onConflict: 'id' }
+          )
+
+        if (categories.length > 0)
+          await supabase!.from('categories').upsert(
+            categories.map(c => ({
+              id: c.id, name: c.name, color: c.color,
+              icon: c.icon, is_custom: c.isCustom ?? false,
+            })),
+            { onConflict: 'id' }
+          )
+
+        if (businessEntries.length > 0)
+          await supabase!.from('business_entries').upsert(
+            businessEntries.map(e => ({
+              id: e.id, description: e.description, type: e.type,
+              amount: e.amount, date: e.date, client: e.client,
+              status: e.status, created_at: e.createdAt,
+            })),
+            { onConflict: 'id' }
+          )
+
+        await supabase!.from('settings').upsert(
+          { key: 'person_names', value: personNames, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        )
+        console.log('✅ Dados salvos no Supabase')
+      } catch (err) {
+        console.warn('Erro ao salvar no Supabase:', err)
+      }
+    }, 1500)
+    return () => clearTimeout(t)
+  }, [expenses, fixedExpenses, categories, businessEntries, personNames, synced])
+
+  // ─── HANDLERS ───────────────────────────────────────────────────
   function addExpenses(list: Omit<Expense, 'id' | 'createdAt'>[]) {
     const now = new Date().toISOString()
-    setExpenses(prev => [
-      ...prev,
-      ...list.map(e => ({ ...e, id: genId(), createdAt: now })),
-    ])
+    setExpenses(prev => [...prev, ...list.map(e => ({ ...e, id: genId(), createdAt: now }))])
   }
   function deleteExpense(id: string) {
     setExpenses(prev => prev.filter(e => e.id !== id))
+    if (hasSupabase && supabase) supabase.from('expenses').delete().eq('id', id)
   }
   function deleteInstallmentGroup(groupId: string) {
     setExpenses(prev => prev.filter(e => e.installmentGroupId !== groupId))
+    if (hasSupabase && supabase) supabase.from('expenses').delete().eq('installment_group_id', groupId)
   }
-
-  // Fixed expenses
   function addFixed(f: Omit<FixedExpense, 'id' | 'createdAt'>) {
     setFixedExpenses(prev => [...prev, { ...f, id: genId(), createdAt: new Date().toISOString() }])
   }
   function deleteFixed(id: string) {
     setFixedExpenses(prev => prev.filter(f => f.id !== id))
+    if (hasSupabase && supabase) supabase.from('fixed_expenses').delete().eq('id', id)
   }
   function toggleFixed(id: string) {
-    setFixedExpenses(prev => prev.map(f => f.id === id ? { ...f, active: !f.active } : f))
+    setFixedExpenses(prev => prev.map(f => {
+      if (f.id !== id) return f
+      const updated = { ...f, active: !f.active }
+      if (hasSupabase && supabase) supabase.from('fixed_expenses').update({ active: updated.active }).eq('id', id)
+      return updated
+    }))
   }
-
-  // Categories
   function addCategory(c: Omit<Category, 'id'>) {
     setCategories(prev => [...prev, { ...c, id: genId() }])
   }
-
-  // Business
   function addBusiness(e: Omit<BusinessEntry, 'id' | 'createdAt'>) {
     setBusinessEntries(prev => [...prev, { ...e, id: genId(), createdAt: new Date().toISOString() }])
   }
   function deleteBusiness(id: string) {
     setBusinessEntries(prev => prev.filter(e => e.id !== id))
+    if (hasSupabase && supabase) supabase.from('business_entries').delete().eq('id', id)
   }
   function updateBusinessStatus(id: string, status: BusinessStatus) {
     setBusinessEntries(prev => prev.map(e => e.id === id ? { ...e, status } : e))
+    if (hasSupabase && supabase) supabase.from('business_entries').update({ status }).eq('id', id)
   }
-
-  // Sincronizar com Supabase automaticamente
-  useSyncData(expenses, fixedExpenses, categories, businessEntries, personNames)
 
   return (
     <div className="min-h-screen bg-slate-50 mesh-bg">
@@ -115,18 +211,14 @@ export default function App() {
             </button>
           </nav>
 
-          {/* Status + Help */}
-          <div className="flex items-center gap-2 ml-auto">
-            <SupabaseStatus />
-            <a
-              href="https://github.com/victorcosta/finance-app/blob/main/SUPABASE_SETUP.md"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-ghost p-1.5 text-slate-500 hover:text-slate-700"
-              title="Configurar Supabase"
-            >
-              <HelpCircle size={16} />
-            </a>
+          {/* Status de sincronização */}
+          <div className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border ${
+            hasSupabase
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+              : 'bg-slate-100 border-slate-200 text-slate-500'
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${hasSupabase ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+            <span className="hidden sm:block">{hasSupabase ? 'Salvando na nuvem' : 'Modo local'}</span>
           </div>
         </div>
       </header>
