@@ -1,0 +1,24 @@
+# Vercel
+.vercel
+
+# Ambiente (Credenciais sensíveis)
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Build
+dist/
+.tsc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
