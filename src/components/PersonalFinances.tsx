@@ -534,39 +534,51 @@ export default function PersonalFinances({
                 {all.length === 0 ? (
                   <p className="text-slate-400 text-sm px-5 py-4">Nenhum lançamento previsto.</p>
                 ) : (
-                  <div className="divide-y divide-slate-50">
-                    {all.map(e => {
-                      const cat = getCat(e.categoryId)
-                      const isInstallment = !!(e.installments && e.installments > 1)
-                      return (
-                        <div key={e.id} className="flex items-center gap-3 px-4 py-3">
-                          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base flex-shrink-0"
-                            style={{ backgroundColor: `${cat?.color}15` }}>
-                            {cat?.icon || '💰'}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <p className="text-sm font-medium text-slate-700 truncate">{e.description}</p>
-                              {e._isFixed && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 flex-shrink-0">
-                                  <RefreshCw size={9} /> Fixa
-                                </span>
-                              )}
-                              {isInstallment && (
-                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 flex-shrink-0">
-                                  <CreditCard size={9} /> {e.installmentNumber}/{e.installments}
-                                </span>
-                              )}
+                  <>
+                    <div className="divide-y divide-slate-50">
+                      {all.map(e => {
+                        const cat = getCat(e.categoryId)
+                        const isInstallment = !!(e.installments && e.installments > 1)
+                        return (
+                          <div key={e.id} className="flex items-center gap-3 px-4 py-3">
+                            <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base flex-shrink-0"
+                              style={{ backgroundColor: `${cat?.color}15` }}>
+                              {cat?.icon || '💰'}
                             </div>
-                            <p className="text-xs text-slate-400">
-                              {cat?.name} · Dia {new Date(e.date + 'T12:00:00').getDate()}
-                            </p>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <p className="text-sm font-medium text-slate-700 truncate">{e.description}</p>
+                                {e._isFixed && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 flex-shrink-0">
+                                    <RefreshCw size={9} /> Fixa
+                                  </span>
+                                )}
+                                {isInstallment && (
+                                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 flex-shrink-0">
+                                    <CreditCard size={9} /> {e.installmentNumber}/{e.installments}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-400">
+                                {cat?.name} · Dia {new Date(e.date + 'T12:00:00').getDate()}
+                              </p>
+                            </div>
+                            <p className="number-display text-sm font-bold text-slate-800 flex-shrink-0">{fmt(e.amount)}</p>
                           </div>
-                          <p className="number-display text-sm font-bold text-slate-800 flex-shrink-0">{fmt(e.amount)}</p>
-                        </div>
-                      )
-                    })}
-                  </div>
+                        )
+                      })}
+                    </div>
+
+                    {/* Total a pagar no final */}
+                    <div className="flex items-center justify-between px-5 py-3.5 bg-indigo-50 border-t border-indigo-100">
+                      <div className="flex items-center gap-2">
+                        <TrendingDown size={15} className="text-indigo-500" />
+                        <span className="text-sm font-semibold text-indigo-700">Total a pagar</span>
+                        <span className="text-xs text-indigo-400">{all.length} lançamento(s)</span>
+                      </div>
+                      <p className="number-display text-lg font-bold text-indigo-700">{fmt(monthTotal)}</p>
+                    </div>
+                  </>
                 )}
               </div>
             )
